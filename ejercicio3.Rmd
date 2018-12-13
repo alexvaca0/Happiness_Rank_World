@@ -1,0 +1,444 @@
+---
+
+
+---
+
+#EJERCICIO 3. 
+                
+                
+Fuente de los datos: https://www.kaggle.com/unsdsn/world-happiness
+
+El código que presentaré a continuación será, a grandes rasgos, un análisis del World Happiness Report. En primer lugar, es de especial relevancia mencionar que tendremos que fusionar 3 datasets, ya que tenemos uno para cada año, 2015, 2016 y 2017. Las variables que contienen cada uno de estos datasets son:
+
+- Year: esta columna la añadiremos nosotros al abrir cada uno de los datasets ya que no está incluida inicialmente. 
+
+- Country: el país al que pertenece
+
+- Region: la región a la que pertenece el país.
+
+- Happiness Rank: 
+
+- Happiness Score: Media de la nota (1-10) otorgada por los entrevistados en cuanto a la felicidad. Es decir, la media de la respuesta, de 1 a 10, a la pregunta ¿cómo de feliz eres?
+
+- Standard Error: el Standard Error de la happiness score. Esto nos podría ayudar a estimar la desigualdad de un país, ya que nos dice cómo de dispersas están las observaciones individuales, a las que no podemos acceder, y por lo tanto nos aporta una información mucho más valiosa que la media, quizás insuficiente ya que no nos dice cómo están distribuidos los Happiness Score de las personas dentro de un país. 
+
+- Economy (GDP Per capita): cómo el GDP Per capita contribuye al cálculo del Happiness Score. Esto, en definitiva, suponemos que es la beta de una regresión múltiple en la que tenemos como variable dependiente el Happiness Score; esto es la beta de la variable independiente "Economy". Esto mismo se cumple para todas las variables en las que la descripción empieza con "cómo la variable (...) contribuye al cálculo de (...)". Alternativamente, podría resultar ser una suma de todas estas variables, lo cual averiguaremos en el siguiente Markdown. 
+
+- Family: cómo la familia contribuye al cálculo del Happiness Score. 
+
+- Health (Life Expectancy): cómo la esperanza de vida contribuye al Happiness Score.
+
+- Freedom: cómo la libertad contribuye al Happiness Score. 
+
+- Trust (Government Corruption): cómo la percepción de la corrupción contribuye al Happiness Score. 
+
+- Generosity: cómo la percepción de la generosidad contribuye al cálculo del Happiness Score.
+
+- Dystopia Residual: Esta variable es de especial interés, y para analizarla con detenimiento tuvimos que recurrir a la página web: http://worldhappiness.report/faq/, en la que se especifica que Dystopia sería un país imaginario que tuviera a la gente menos feiz del mundo. El objetivo de la variable Dystopia Residual es tener un benchmark contra el que comparar favorablemente a todos los países (es la distancia que existe desde la felicidad media en cada país a la felicidad media en ese país imaginario llamado Dystopia).Esta última variable también se utiliza para el cálculo del Happiness Score; teóricamente cuanto mayor es esta variable, más lejos está el país de lo que sería poco deseable.  
+
+En el archivo 2016.csv podemos encontrarnos con otras dos variables que añadir al estudio, éstas son Lower Confidence Level y Higher Confidence Level; ésto nos facilita el trabajo ya que estas dos variabLes, en caso de necesitarlas, se las añadiremos a los otros dos datasets manualmente. Damos por hecho que utilizan un 95% de confianza para establecer estos LCL y UCL. 
+Para el archivo 2017.csv ocurre algo parecido, ya que no tenemos tampoco el SE, lo que nos dan son el bigote de arriba y de abajo de los Whiskers de un boxplot. 
+
+Con el fin de hacer el análisis más entretenido, hemos introducido algunos NAs en las variables para jugar un poco más con ellas. Esto, evidentemente, empeorará la calidad de los datos (pese a imputarles luego valores en función de unos criterios), por lo tanto las conclusiones que se extraigan de este análisis tendrán esa limitación añadida. El resto del análisis y de los resultados obtenidos en el código se irán describiendo a lo largo de la práctica.
+
+
+```{r warning=FALSE}
+
+library(readr)
+
+df_2015 <-read_csv("2015.csv")
+
+df_2016 <-  read_csv("2016.csv")
+
+df_2017 <-  read_csv("2017.csv")
+
+todos_lista <-  list(df_2015, df_2016, df_2017)
+
+
+
+
+#vamos a cambiarles los nombres a las variables para que sea más fácil trabajar con ellas. 
+
+names(todos_lista[[1]]) <- c("Country", "Region", "Happ_rank", "Happ", "SE", "econ", "fam", "health", "freedom", "gov_trust", "generosity", "Dyst_resid")
+
+names(todos_lista[[2]]) <-  c("Country", "Region", "Happ_rank", "Happ", "LCL", "UCL", "econ", "fam", "health", "freedom", "gov_trust", "generosity", "Dyst_resid")
+
+names(todos_lista[[3]]) <- c("Country", "Happ_rank", "Happ", "WH", "WL", "econ", "fam", "health", "freedom", "generosity", "gov_trust", "Dyst_resid")
+
+str(todos_lista)
+
+```
+
+```{r}
+
+add_index <- function(df) { #le añadimos un índice a cada uno de los df. 
+  
+  df$index <- seq(1, nrow(df), 1)
+  
+  return(df)
+  
+}
+
+
+todos_lista_2 <-lapply(todos_lista[1:3], add_index)
+
+#str(todos_lista_2)
+
+```
+
+
+```{r}
+introduce_random_NAs <- function(df, seed = 15, nas = 8, cols = c("Country", "Happ_rank", "fam", "Dyst_resid")) {
+  
+  df2 <-  df
+  
+  
+  for (columna in cols) {
+      
+      set.seed(seed)
+      
+      r_index <- sample.int(nrow(df2), size = nas)
+      
+      df2[r_index, columna] <- NA
+      
+  }
+  
+  return(df2)
+  
+}
+
+todos_lista_nas <- lapply(todos_lista_2[1:3], introduce_random_NAs)
+
+sum(is.na(todos_lista_nas[[1]]))
+sum(is.na(todos_lista_nas[[2]]))
+sum(is.na(todos_lista_nas[[3]]))
+#vemos que ya tenemos los NAs introducidos. 
+
+```
+
+```{r}
+rank(todos_lista_nas[[2]]$Happ)
+
+#vemos que están en orden inverso; esto nos ayudará a imputar los valores de Happiness_rank
+```
+
+```{r}
+todos_lista_nas2 <- lapply(todos_lista_nas[1:3], data.frame) #transformamos todos a la clase data.frame (antes teníamos varias posibles clases que podía tomar, pero es más cómodo trabajar con data frames)
+
+```
+
+Este código que viene a continuación tiene como objetivo "arreglar" el problema que tenemos con el df de 2017, en el que no viene la variable Region, la cual necesitamos para agrupar a la hora de imputar valores a las variables a las que hemos itroducido NAs. 
+
+
+```{r warning=TRUE}
+
+library(dplyr)
+
+df1 <- todos_lista_nas2[[1]]
+
+
+
+ 
+
+df2 <-  todos_lista_nas[[2]]
+
+grupos_region <- df2 %>%
+  group_by(Region) %>%
+  select(Country)
+
+
+df3 <-  todos_lista_nas[[3]]
+
+
+
+#ordenamos alfabéticamente ambos dataframes, tanto el del año 2017 como el de los grupos que nos creamos para poder imputar las regiones en el dataset del 2017. 
+
+ordered_df3 <- df3[order(df3$Country), ]
+
+grupos_ordenados <-  grupos_region[order(grupos_region$Country), ]
+
+grupos_df <-  data.frame(grupos_ordenados)
+
+df3_bis <-  merge(ordered_df3, grupos_ordenados, by.x = "Country", by.y = "Country", all.x = T, all.y = F, incomparables = NA) 
+
+
+
+
+todos_lista_nas2[[3]] <-  NULL #primero eliminamos el df3 de la lista
+
+todos_lista_nas2[[3]] <-  df3_bis #y posteriormente le introducimos el nuevo df que hemos creado en el que se incluyen las regiones. 
+
+
+```
+
+```{r}
+head(todos_lista_nas2[[3]]) #como podemos ver, aquí tenemos ya introducida la variable Region. 
+```
+
+La region la tenemos ahora en la variable Region.y, ya hemos solucionado el problema que tenía el dataset de 2017, que venía condicionado por la ausencia de la región, la cual nos será de gran utilidad de ahora en adelante para el resto del análisis que vamos a realizar. 
+
+
+Una vez hemos introducido los Nas, vamos a proceder a limpiarlos con otra función: fix_nas()
+
+```{r}
+
+library(dplyr)
+
+means_by_region <-  function(df) {
+  require(dplyr)
+  df2 <- df %>%
+    group_by(Region) %>%
+    summarise(media_happ = mean(Happ, na.rm = T),
+              media_fam = mean(fam, na.rm = T),
+              mean_dyst_resid = mean(Dyst_resid, na.rm = T))
+  
+  return(data.frame(df2))
+}
+
+todos_na_groups <- lapply(todos_lista_nas2, means_by_region)
+#posiblemente lleguemos a no tener que utilizar estas variables agrupadas, pero por si acaso las tenemos en esta lista, en caso de necesitarlas. 
+
+```
+
+
+```{r}
+
+
+fix_nas <- function(df, cols = c("Country", "Happ_rank", "fam", "Dyst_resid")) {
+  
+  index_reversed <- rev(df$index)
+  
+  for (columna in cols) {
+    
+    if (columna == "Country") {
+      
+      next
+      
+    } else if (columna == "Happ_rank") { #como esta columna depende directamente del Happiness Score, y los df están ordenados descendentemente según esta variable...
+      
+      df[ , columna] <- df$index 
+      
+    } else if (columna == "fam") {
+      
+        
+        d <-  df %>% 
+                    group_by(Region) %>%
+                        mutate(fam = ifelse(is.na(fam), mean(fam, na.rm = T), fam)) %>%
+                            select(fam) #utilizamos esto para imputar la media de la variable en caso de estar ausente. Haremos lo mismo con la columna Dyst_resid. 
+        
+        df$fam <- d$fam
+        
+        
+    } else if (columna == "Dyst_resid") {
+      
+      
+          d   <-  df %>%
+                          group_by(Region) %>%
+                            mutate(Dyst_resid = ifelse(is.na(Dyst_resid), mean(Dyst_resid, na.rm = T), Dyst_resid)) %>%
+                                select(Dyst_resid)
+          
+          df$Dyst_resid <- d$Dyst_resid
+      
+                                      
+    } else {
+      
+      print("Check the columns you have introduced")
+      
+    }
+  }
+  
+  return(df)
+  
+}
+  
+  
+```
+
+```{r}
+lista_limpios <-  lapply(todos_lista_nas2, fix_nas)
+```
+
+```{r}
+
+sum(is.na(lista_limpios[[1]]))
+
+sum(is.na(lista_limpios[[2]]))
+
+sum(is.na(lista_limpios[[3]]))
+
+
+```
+
+Como podemos ver, quedan los df limpios a excepción del país, que es un valor que no podemos imputar (no de forma tan sencilla, una opción sería diseñar una función que, viendo como se comporta cada país en cada año, es decir qué valores tienen sus variables cada año, tratara de averiguar el país más probable al que pertenecen las observaciones).
+Una excepción a esto es lo que ocurre con el df de 2017; esto se debe a que para imputarle la región, utilizamos los datos de 2016, y debido a cambios geopolíticos (o a simple ausencia de los datos; por ejemplo en el caso de Polonia, no teníamos datos para el año 2016, pero sí en el 2017; esto provoca que no se pueda incorporar su región al hacer el "merge"); se han creado países nuevos o fusionado algunos dejando un único país (esto era algo que ya habíamos intuido por la diferencia en el número de filas entre los dataframes). Esto provoca que en aquellos casos en los que no se ha podido encontrar la región a la que pertenece el país, se han imputado esos valores con NAs, con los cuales tendremos que trabajar a partir de ahora, ya que no disponemos de más información para poder imputar estos valores. 
+
+
+##ANÁLISIS
+
+Ahora procederé a realizar un pequeño análisis de datos, tratando de responder a preguntas cómo: ¿Cuáles son las regiones del mundo con una mayor nota media en felicidad? ¿Y los que menos? ¿En qué regiones encontramos la mayor diferencia de felicidad entre unos países y otros? ¿Qué países tienen unas diferencias mayores en la felicidad de los habitantes?
+
+```{r}
+#vamos a explorar un poco las variables.
+
+n = round(sqrt(nrow(lista_limpios[[1]]))) #utilizamos la "rule of thumb" de que debemos utilizar breaks = sqrt(n), siendo n el número de observaciones que tenemos. Aunque el número de observaciones difiere de unos df a otros, siendo la diferencia tan pequeña utilizaremos el número de filas del dataset de 2015 para dibujar los 3 histogramas. 
+
+hist(lista_limpios[[1]]$Happ, breaks = n)
+hist(lista_limpios[[2]]$Happ, breaks = n)
+hist(lista_limpios[[3]]$Happ, breaks = n)
+
+
+```
+
+
+En los 3 histogramas de arriba podemos ver cómo se distribuye la media por país de la felicidad (del 1 al 10), en cada uno de los 3 años (2015, 16 y 17 respectivamente). Vemos que la forma que toman estos histogramas, especialmente los de 2015 y 2017, es muy parecida a la normal de Gauss. Más adelante dibujaremos unos boxplot que nos puedan dar algo más de información sobre cómo se distribuye la variable happ en cada uno de los años, ya que en el histograma, al variar la escala del eje y de unos df a otros tenemos algunas dificultades para poder afirmar apreciaciones a simple vista. 
+
+
+```{r}
+summary(lista_limpios[[1]])
+summary(lista_limpios[[2]])
+summary(lista_limpios[[3]])
+
+#aquí podemos ver una descripción general de los 3 dataframes; para poder obtener algo más de información, vamos a transformar la región a factor, de tal forma que podamos ver cuántos países hay en cada región. 
+```
+
+```{r}
+lista_limpios[[1]]$Region <- as.factor(lista_limpios[[1]]$Region)
+lista_limpios[[2]]$Region <- as.factor(lista_limpios[[2]]$Region)
+lista_limpios[[3]]$Region <- as.factor(lista_limpios[[3]]$Region)
+```
+
+
+```{r}
+summary(lista_limpios[[1]])
+summary(lista_limpios[[2]])
+summary(lista_limpios[[3]])
+```
+
+```{r}
+boxplot(lista_limpios[[1]]$Happ)
+
+boxplot(lista_limpios[[2]]$Happ)
+
+boxplot(lista_limpios[[3]]$Happ)
+```
+
+Vemos que la mediana se sitúa algo por encima del 5, más cerca del Q1 que del Q3, para el año 2015. Para el año 2016, tenemos una distribución más simétrica para esta variable (happ), ya que la mediana se sitúa algo por encima que en el año 2015  (la diferencia es pequeña), sin embargo existe una distancia casi igual de la mediana a cada uno de los cuartiles Q1 y Q3. En el año 2017, algo que llama la atención es que el Q1 y el Q3 se encuentran más pegados que en los dos años anteriores, indicando una mayor concentración de los datos al rededor de la mediana de la distribución. Esto podría interpretarse como que existe, en el 2017, una menor diferencia en la felicidad entre unos países y otros. Sin embargo, y dado que tenemos menos datos en este año, estas diferencias podrían ser debidas a la carencia de información. 
+
+
+Para el análisis que viene a continuación, y con el fin de mantener la extensión de este razonable, nos centraremos principalmente en el df del que tenemos más datos, es decir el del año 2015. 
+
+```{r}
+lista_limpios[[1]] %>%
+  group_by(Region) %>%
+  summarise(media_felicidad = mean(Happ, na.rm = T)) %>%
+  arrange(desc(media_felicidad))
+
+  
+```
+
+Curiosamente, vemos que en el año 2015 los países de media más felices son aquellos que pertenecen a Australia y Nueva Zelanda, seguidos de North America y Western Europe. Una interpretación que se puede extraer de este análisis es que los países con un nivel de vida más alto tienen un mayor índice de felicidad; sin embargo hay algunas excepciones, ya que en Latin America & Caribbean, que en teoría existe un nivel de vida inferior al de Central & Eastern Europe, la gente es más feliz. Esto se podría explicar, entre casi infinitos motivos, por el clima. 
+
+Veamos si para el año 2017 esto ha cambiado o continúa igual: 
+
+```{r}
+lista_limpios[[3]] %>%
+  group_by(Region) %>%
+  summarise(media_felicidad = mean(Happ, na.rm = T)) %>%
+  arrange(desc(media_felicidad))
+```
+Vemos que, salvo pequeños cambios (como una menor felicidad media en North America y una felicidad media algo mayor en Western Europe), se mantiene más o menos parecido; el orden no se altera. 
+
+Nos interesa saber cuáles son las regiones que perciben una menor libertad: 
+
+```{r}
+lista_limpios[[1]] %>%
+  
+  group_by(Region) %>%
+  
+  summarise(media_aportacion_libertad = mean(freedom)) %>%
+  
+  arrange(media_aportacion_libertad)
+
+
+```
+
+Los países en los que se percibe que la libertad aporta menos al cálculo de la felicidad media del país son aquellos que pertenecen a Central & Eastern Europe, Middle East & Northern Africa y Sub-Saharan Africa. 
+
+Otra cuestión de interés, será saber en qué países la economía tiene un mayor peso a la hora de calcular la felicidad media. 
+
+```{r}
+lista_limpios[[1]] %>%
+  
+  group_by(Region) %>%
+  
+  summarise(media_econ = mean(econ, na.rm= T)) %>%
+  
+  arrange(desc(media_econ))
+```
+Vemos que en los países más capitalistas (especialmente North America), el PIB per capita del país tiene un gran peso a la hora de calcular la media de la felicidad de la gente. A North America le siguen Western Europe y Australia-New Zealand. 
+
+Ahora vamos a ver en qué regiones encontramos una mayor disparidad en la felicidad media de los países:
+
+
+```{r}
+lista_limpios[[1]] %>%
+  
+  group_by(Region) %>%
+  
+  summarise(disparidad_felicidad = max(Happ, na.rm = T) - min(Happ, na.rm = T)) %>%
+  
+  arrange(desc(disparidad_felicidad))
+
+```
+
+Estos resultados son tremendamente reveladores, ya que vemos que en primera posición se encuentran Middle East & Northern Africa, con una disparidad en la media de la felicidad entre los países que forman esta región de: ¡4.27!. Esta es una diferencia tremenda, especialmente si la comparamos, por ejemplo, con la diferencia que existe en Western Europe (2.73). Debemos recordar que no todas las regiones tienen el mismo número de países y esto, por supuesto, afecta a esta diferencia máxima en la felicidad de los países que forman las regiones. Sin embargo, sigue siendo destacable que esta disparidad entre Middle East & Northern Africa y Western Europe sea de 1.54; es una distancia tremenda que nos muestra la increíble disparidad que existe en Middle East & Northern Africa entre unos países y otros. No debemos olvidar tampoco que en este momento histórico (y aún más si cabe en 2015), muchos de los países que forman esta región están en guerra, y los que no lo están se ven afectados por la guerra de sus países vecinos. Esta observación puede ayudarnos a entender el por qué de esta gran diferencia. 
+
+Un indicador de las diferencias, de persona a persona dentro de un mismo país, en cuanto a la felicidad, nos la aporta el SE. 
+
+```{r}
+lista_limpios[[1]] %>%
+  arrange(desc(SE))
+  
+```
+Por países, vemos que aquellos en los que la gente de un mismo país dio notas más dispares a su felicidad fue en Jamaica, Liberia y Trinidad & Tobago. Podríamos decir, por tanto, que estos son los países con una mayor desigualdad, con una mayor diferencia de felicidad de unas personas a otras. Sería interesante ver si existe alguna relación entre esta diferencia y el régimen político existente en los países. 
+
+Haremos ahora lo mismo pero agrupando por región. 
+
+```{r}
+lista_limpios[[1]] %>%
+  
+  group_by(Region) %>%
+  
+  summarise(media_SE = mean(SE, na.rm = T)) %>%
+  
+  arrange(desc(media_SE))
+```
+Las regiones en las que la diferencia en felicidad de unas personas a otras es mayor son Latin America & Caribbean y Sub-Saharan Africa. Las que menos, North America y Southern Asia. 
+
+Por último, nos preguntamos cómo ha cambiado la importancia de la variable gov_trust, entre regiones, entre el año 2015 y 2016. 
+
+```{r}
+lista_limpios[[1]] %>%
+  
+  group_by(Region) %>%
+  
+  summarise(media_gov = mean(gov_trust, na.rm = T)) %>%
+  
+  arrange(desc(media_gov)) 
+
+lista_limpios[[3]] %>%
+  
+  group_by(Region) %>%
+  
+  summarise(media_gov = mean(gov_trust, na.rm = T)) %>%
+  
+  arrange(desc(media_gov)) 
+
+
+```
+
+En primer lugar, podemos ver que la media por región de la variable gov_trust, decrece, de forma general. Respecto al ranking, Australia & New Zealand se mantiene en primera posición (los países de esta región son aquellos en los que la variable gov_trust afecta más al cálculo de la felicidad media del país); sin embargo, en el año 2015 era North America la segunda región, y Western Europe la tercera. Estas dos regiones se cambian el puesto en el año 2017. 
+
+
+
+
